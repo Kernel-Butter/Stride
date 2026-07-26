@@ -45,6 +45,15 @@ export async function migrateDatabase() {
       new_deadline TEXT NOT NULL,
       at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS focus_sessions (
+      id TEXT PRIMARY KEY NOT NULL,
+      mission_id TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+      target_minutes INTEGER NOT NULL,
+      actual_seconds INTEGER NOT NULL,
+      completed INTEGER NOT NULL DEFAULT 0,
+      started_at TEXT NOT NULL,
+      ended_at TEXT NOT NULL
+    );
   `);
   try {
     await db.execAsync('ALTER TABLE alarm_snoozes ADD COLUMN snoozed_until TEXT');
@@ -240,6 +249,30 @@ export async function completeMission(id: string): Promise<void> {
     "UPDATE missions SET status = 'completed', completed_at = ? WHERE id = ?",
     new Date().toISOString(),
     id,
+  );
+}
+
+export async function insertFocusSession(input: {
+  missionId: string;
+  targetMinutes: number;
+  actualSeconds: number;
+  completed: boolean;
+  startedAt: string;
+  endedAt: string;
+}): Promise<void> {
+  const db = await getDatabase();
+  const id = `focus-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  await db.runAsync(
+    `INSERT INTO focus_sessions
+     (id, mission_id, target_minutes, actual_seconds, completed, started_at, ended_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    id,
+    input.missionId,
+    input.targetMinutes,
+    input.actualSeconds,
+    input.completed ? 1 : 0,
+    input.startedAt,
+    input.endedAt,
   );
 }
 

@@ -17,6 +17,7 @@ import { MissionCard } from './src/components/MissionCard';
 import { CreateMissionScreen } from './src/screens/CreateMissionScreen';
 import { MissionDetailScreen } from './src/screens/MissionDetailScreen';
 import { AlarmScreen } from './src/screens/AlarmScreen';
+import { FocusTimerScreen } from './src/screens/FocusTimerScreen';
 import { PostponeScreen } from './src/screens/PostponeScreen';
 import {
   dismissMissionAlarm,
@@ -34,7 +35,7 @@ import { ThemeProvider, useTheme } from './src/theme/ThemeProvider';
 
 type Screen =
   | { name: 'today' | 'create' }
-  | { name: 'detail' | 'edit' | 'postpone'; missionId: string };
+  | { name: 'detail' | 'edit' | 'postpone' | 'focus'; missionId: string };
 
 function StrideApp() {
   const { colors, mode, toggleMode } = useTheme();
@@ -150,12 +151,22 @@ function StrideApp() {
     );
   }
 
+  if (screen.name === 'focus') {
+    return (
+      <FocusTimerScreen
+        missionId={screen.missionId}
+        onClose={() => setScreen({ name: 'detail', missionId: screen.missionId })}
+      />
+    );
+  }
+
   if (screen.name === 'detail') {
     return (
       <MissionDetailScreen
         missionId={screen.missionId}
         onBack={() => setScreen({ name: 'today' })}
         onEdit={() => setScreen({ name: 'edit', missionId: screen.missionId })}
+        onStartFocus={() => setScreen({ name: 'focus', missionId: screen.missionId })}
         onPostpone={() => setScreen({ name: 'postpone', missionId: screen.missionId })}
         onRemoved={() => setScreen({ name: 'today' })}
       />

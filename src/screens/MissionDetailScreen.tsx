@@ -8,12 +8,14 @@ export function MissionDetailScreen({
   missionId,
   onBack,
   onEdit,
+  onStartFocus,
   onPostpone,
   onRemoved,
 }: {
   missionId: string;
   onBack: () => void;
   onEdit: () => void;
+  onStartFocus: () => void;
   onPostpone: () => void;
   onRemoved: () => void;
 }) {
@@ -124,6 +126,14 @@ export function MissionDetailScreen({
                 : `${mission.objectives.length - done} objectives left`}
             </Text>
           </Pressable>
+          {!allDone ? (
+            <Pressable
+              onPress={onStartFocus}
+              style={[styles.focus, { backgroundColor: colors.accentSoft }]}
+            >
+              <Text style={{ color: colors.accent, fontWeight: '800' }}>Start focus</Text>
+            </Pressable>
+          ) : null}
           <Pressable
             onPress={onPostpone}
             style={[styles.postpone, { backgroundColor: colors.card, borderColor: colors.border }]}
@@ -181,6 +191,13 @@ const styles = StyleSheet.create({
     marginTop: 22,
   },
   completeText: { color: '#fff', fontWeight: '800' },
+  focus: {
+    height: 48,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 10,
+  },
   postpone: {
     height: 48,
     borderRadius: 14,
