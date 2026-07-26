@@ -18,17 +18,20 @@ as we go.
   from spec, reviewed and independently verified (typecheck + tests) before
   commit.
 
+- [x] **Settings screen — Phase 2 closed out**
+  Quiet hours are now user-editable (were hardcoded 23:00–07:00) and take effect
+  immediately. Notification + exact-alarm permission status with one-tap fixes.
+  Theme choice moved out of the Today header, persists across launches now
+  (previously reset to system default every launch). Settings stored in SQLite,
+  not MMKV — see commit message for why.
+
 ## Now
 
-Needs a native rebuild before it'll run on device (`expo-keep-awake` is a new
-native dep) — `npx expo prebuild --clean` then `npx expo run:android` next
-time you're testing.
-
-## Phase 2 — Pressure (close-out)
-
-- [ ] **Settings screen** (up next)
-  Quiet hours (currently hardcoded 23:00–07:00 in `notificationPlan.ts`),
-  notification/exact-alarm permission status, theme toggle relocated here.
+Needs a native rebuild before either of the last two features will run on
+device (`expo-keep-awake` from the focus timer is a new native dep) —
+`npx expo prebuild --clean` then `npx expo run:android` next time you're
+testing. **Per the standing rule below: run Phase 2 on the real phone for a
+stretch before Phase 3 (wins/streaks) starts.**
 
 ## Phase 3 — Loop
 
