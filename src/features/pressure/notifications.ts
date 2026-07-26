@@ -7,8 +7,13 @@ import notifee, {
   TimestampTrigger,
   TriggerType,
 } from '@notifee/react-native';
-import { getMissionSnoozedUntil } from '../../db/database';
+import { getMissionSnoozedUntil, getSetting } from '../../db/database';
 import { Mission } from '../../domain/mission';
+import {
+  DEFAULT_QUIET_HOURS,
+  parseHourSetting,
+  QuietHours,
+} from '../../domain/settings';
 import { createCriticalAlarmPlan, createNotificationPlan } from './notificationPlan';
 
 const CHANNEL_ID = 'mission-reminders';
@@ -70,7 +75,18 @@ export async function syncMissionNotifications(missions: Mission[]): Promise<voi
     await notifee.cancelTriggerNotifications(existingIds);
   }
 
-  for (const item of createNotificationPlan(missions)) {
+  const quietHours: QuietHours = {
+    start: parseHourSetting(
+      await getSetting('quiet_hours_start'),
+      DEFAULT_QUIET_HOURS.start,
+    ),
+    end: parseHourSetting(
+      await getSetting('quiet_hours_end'),
+      DEFAULT_QUIET_HOURS.end,
+    ),
+  };
+
+  for (const item of createNotificationPlan(missions, Date.now(), quietHours)) {
     const trigger: TimestampTrigger = {
       type: TriggerType.TIMESTAMP,
       timestamp: item.timestamp,

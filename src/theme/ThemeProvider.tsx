@@ -1,4 +1,5 @@
-import { createContext, PropsWithChildren, useContext, useMemo, useState } from 'react';
+import { createContext, PropsWithChildren, useContext, useEffect, useMemo, useState } from 'react';
+import { getSetting, setSetting } from '../db/database';
 import { darkColors, lightColors, ThemeColors } from './tokens';
 
 type Mode = 'light' | 'dark';
@@ -15,11 +16,23 @@ export function ThemeProvider({
   initialMode,
 }: PropsWithChildren<{ initialMode: Mode }>) {
   const [mode, setMode] = useState<Mode>(initialMode);
+  useEffect(() => {
+    getSetting('theme_mode')
+      .then((savedMode) => {
+        if (savedMode === 'light' || savedMode === 'dark') setMode(savedMode);
+      })
+      .catch(() => undefined);
+  }, []);
   const value = useMemo(
     () => ({
       mode,
       colors: mode === 'dark' ? darkColors : lightColors,
-      toggleMode: () => setMode((current) => (current === 'dark' ? 'light' : 'dark')),
+      toggleMode: () =>
+        setMode((current) => {
+          const next = current === 'dark' ? 'light' : 'dark';
+          void setSetting('theme_mode', next);
+          return next;
+        }),
     }),
     [mode],
   );

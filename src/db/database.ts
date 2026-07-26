@@ -54,12 +54,35 @@ export async function migrateDatabase() {
       started_at TEXT NOT NULL,
       ended_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY NOT NULL,
+      value TEXT NOT NULL
+    );
   `);
   try {
     await db.execAsync('ALTER TABLE alarm_snoozes ADD COLUMN snoozed_until TEXT');
   } catch {
     // column already exists
   }
+}
+
+export async function getSetting(key: string): Promise<string | undefined> {
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<{ value: string }>(
+    'SELECT value FROM settings WHERE key = ?',
+    key,
+  );
+  return row?.value;
+}
+
+export async function setSetting(key: string, value: string): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync(
+    `INSERT INTO settings (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    key,
+    value,
+  );
 }
 
 export interface PostponeRecord {

@@ -1,5 +1,6 @@
 import { getMissionHeat } from '../../domain/heat';
 import { Mission } from '../../domain/mission';
+import { DEFAULT_QUIET_HOURS, QuietHours } from '../../domain/settings';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -21,14 +22,17 @@ const HOT_COPY = [
   'Open Stride and move this mission forward.',
 ];
 
-function outsideQuietHours(timestamp: number): number {
+function outsideQuietHours(
+  timestamp: number,
+  quietHours: QuietHours = DEFAULT_QUIET_HOURS,
+): number {
   const date = new Date(timestamp);
   const hour = date.getHours();
-  if (hour >= 23) {
+  if (hour >= quietHours.start) {
     date.setDate(date.getDate() + 1);
-    date.setHours(7, 0, 0, 0);
-  } else if (hour < 7) {
-    date.setHours(7, 0, 0, 0);
+    date.setHours(quietHours.end, 0, 0, 0);
+  } else if (hour < quietHours.end) {
+    date.setHours(quietHours.end, 0, 0, 0);
   }
   return date.getTime();
 }
@@ -36,6 +40,7 @@ function outsideQuietHours(timestamp: number): number {
 export function createNotificationPlan(
   missions: Mission[],
   now = Date.now(),
+  quietHours: QuietHours = DEFAULT_QUIET_HOURS,
 ): PlannedNotification[] {
   return missions.flatMap((mission) => {
     const deadline = new Date(mission.deadline).getTime();
@@ -45,7 +50,7 @@ export function createNotificationPlan(
 
     if (heat === 'warm') {
       const ideal = Math.max(now + 5 * MINUTE, deadline - 24 * HOUR);
-      const timestamp = outsideQuietHours(ideal);
+      const timestamp = outsideQuietHours(ideal, quietHours);
       if (timestamp >= deadline) return [];
       return [{
         id: `stride:mission:${mission.id}:warm`,
@@ -61,7 +66,7 @@ export function createNotificationPlan(
         id: `stride:mission:${mission.id}:hot:${index}`,
         title: mission.title,
         body: HOT_COPY[index],
-        timestamp: outsideQuietHours(now + minutes * MINUTE),
+        timestamp: outsideQuietHours(now + minutes * MINUTE, quietHours),
       }))
       .filter((item, index, items) =>
         item.timestamp < deadline &&

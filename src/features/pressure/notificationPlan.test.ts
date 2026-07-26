@@ -27,6 +27,22 @@ describe('createNotificationPlan', () => {
     expect(plan[0].id).toContain(':warm');
   });
 
+  it('shifts a warm reminder to the end of a custom quiet-hours window', () => {
+    const now = new Date('2026-07-25T12:00:00').getTime();
+    const deadline = new Date('2026-07-27T23:00:00').getTime();
+    const plan = createNotificationPlan([mission(deadline)], now, { start: 22, end: 6 });
+    expect(plan[0].timestamp).toBe(new Date('2026-07-27T06:00:00').getTime());
+  });
+
+  it('shifts a warm reminder differently from the default quiet-hours window', () => {
+    const now = new Date('2026-07-25T12:00:00').getTime();
+    const deadline = new Date('2026-07-27T23:00:00').getTime();
+    const defaultPlan = createNotificationPlan([mission(deadline)], now);
+    const customPlan = createNotificationPlan([mission(deadline)], now, { start: 22, end: 6 });
+    expect(defaultPlan[0].timestamp).toBe(new Date('2026-07-27T07:00:00').getTime());
+    expect(customPlan[0].timestamp).not.toBe(defaultPlan[0].timestamp);
+  });
+
   it('rotates copy for a hot mission', () => {
     const now = new Date('2026-07-25T12:00:00').getTime();
     const plan = createNotificationPlan([mission(now + 12 * 60 * 60 * 1000)], now);

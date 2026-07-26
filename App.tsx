@@ -16,6 +16,7 @@ import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { MissionCard } from './src/components/MissionCard';
 import { CreateMissionScreen } from './src/screens/CreateMissionScreen';
 import { MissionDetailScreen } from './src/screens/MissionDetailScreen';
+import { SettingsScreen } from './src/screens/SettingsScreen';
 import { AlarmScreen } from './src/screens/AlarmScreen';
 import { FocusTimerScreen } from './src/screens/FocusTimerScreen';
 import { PostponeScreen } from './src/screens/PostponeScreen';
@@ -34,11 +35,11 @@ import { useResponsive } from './src/theme/responsive';
 import { ThemeProvider, useTheme } from './src/theme/ThemeProvider';
 
 type Screen =
-  | { name: 'today' | 'create' }
+  | { name: 'today' | 'create' | 'settings' }
   | { name: 'detail' | 'edit' | 'postpone' | 'focus'; missionId: string };
 
 function StrideApp() {
-  const { colors, mode, toggleMode } = useTheme();
+  const { colors, mode } = useTheme();
   const { horizontalPadding, contentMaxWidth } = useResponsive();
   const [screen, setScreen] = useState<Screen>({ name: 'today' });
   const [notificationState, setNotificationState] =
@@ -127,6 +128,10 @@ function StrideApp() {
     return <CreateMissionScreen onClose={() => setScreen({ name: 'today' })} />;
   }
 
+  if (screen.name === 'settings') {
+    return <SettingsScreen onBack={() => setScreen({ name: 'today' })} />;
+  }
+
   if (screen.name === 'edit') {
     return (
       <CreateMissionScreen
@@ -184,11 +189,11 @@ function StrideApp() {
               <Text style={[styles.title, { color: colors.text }]}>Today</Text>
             </View>
             <Pressable
-              accessibilityLabel="Toggle color theme"
-              onPress={toggleMode}
+              accessibilityLabel="Open settings"
+              onPress={() => setScreen({ name: 'settings' })}
               style={[styles.themeButton, { backgroundColor: colors.card, borderColor: colors.border }]}
             >
-              <Text style={{ color: colors.text }}>{mode === 'dark' ? '☀' : '☾'}</Text>
+              <Text style={{ color: colors.text }}>⚙</Text>
             </Pressable>
           </View>
 
