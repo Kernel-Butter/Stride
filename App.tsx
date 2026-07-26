@@ -1,34 +1,101 @@
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   useColorScheme,
   View,
 } from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { MissionCard } from './src/components/MissionCard';
 import { CreateMissionScreen } from './src/screens/CreateMissionScreen';
 import { MissionDetailScreen } from './src/screens/MissionDetailScreen';
+import { AlarmScreen } from './src/screens/AlarmScreen';
+import { PostponeScreen } from './src/screens/PostponeScreen';
+import {
+  dismissMissionAlarm,
+  getExactAlarmPermissionState,
+  getInitialCriticalAlarmMissionId,
+  getNotificationPermissionState,
+  onCriticalAlarmOpened,
+  openExactAlarmPermissionSettings,
+  requestNotificationPermission,
+  syncMissionNotificationsSafely,
+} from './src/features/pressure/notifications';
 import { useMissionStore } from './src/store/missionStore';
 import { useResponsive } from './src/theme/responsive';
 import { ThemeProvider, useTheme } from './src/theme/ThemeProvider';
 
-type Screen = { name: 'today' | 'create' } | { name: 'detail'; missionId: string };
+type Screen =
+  | { name: 'today' | 'create' }
+  | { name: 'detail' | 'edit' | 'postpone'; missionId: string };
 
 function StrideApp() {
   const { colors, mode, toggleMode } = useTheme();
   const { horizontalPadding, contentMaxWidth } = useResponsive();
   const [screen, setScreen] = useState<Screen>({ name: 'today' });
+  const [notificationState, setNotificationState] =
+    useState<'checking' | 'enabled' | 'disabled'>('checking');
+  const [exactAlarmState, setExactAlarmState] =
+    useState<'checking' | 'enabled' | 'disabled'>('checking');
+  const [activeAlarmMissionId, setActiveAlarmMissionId] = useState<string>();
   const { missions, initialize, loading, error, toggleObjective } = useMissionStore();
 
   useEffect(() => {
     initialize();
   }, [initialize]);
+
+  useEffect(() => {
+    if (loading) return;
+    getNotificationPermissionState()
+      .then(setNotificationState)
+      .catch(() => setNotificationState('disabled'));
+  }, [loading]);
+
+  useEffect(() => {
+    const unsubscribe = onCriticalAlarmOpened(setActiveAlarmMissionId);
+    getInitialCriticalAlarmMissionId().then((missionId) => {
+      if (missionId) setActiveAlarmMissionId(missionId);
+    });
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      getExactAlarmPermissionState()
+        .then(setExactAlarmState)
+        .catch(() => setExactAlarmState('disabled'));
+    });
+    return () => {
+      unsubscribe();
+      subscription.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (notificationState !== 'enabled') return;
+    getExactAlarmPermissionState()
+      .then(setExactAlarmState)
+      .catch(() => setExactAlarmState('disabled'));
+  }, [notificationState]);
+
+  const missionsRef = useRef(missions);
+  missionsRef.current = missions;
+
+  useEffect(() => {
+    if (exactAlarmState === 'enabled' && !loading) {
+      syncMissionNotificationsSafely(missionsRef.current);
+    }
+  }, [exactAlarmState, loading]);
+
+  async function enableNotifications() {
+    const enabled = await requestNotificationPermission();
+    setNotificationState(enabled ? 'enabled' : 'disabled');
+    if (enabled) await syncMissionNotificationsSafely(missions);
+  }
 
   if (loading) {
     return (
@@ -38,8 +105,49 @@ function StrideApp() {
     );
   }
 
+  if (activeAlarmMissionId && missions.some((mission) => mission.id === activeAlarmMissionId)) {
+    return (
+      <AlarmScreen
+        missionId={activeAlarmMissionId}
+        onClose={() => setActiveAlarmMissionId(undefined)}
+        onPostpone={() => {
+          setScreen({ name: 'postpone', missionId: activeAlarmMissionId });
+          setActiveAlarmMissionId(undefined);
+        }}
+        onViewMission={() => {
+          setScreen({ name: 'detail', missionId: activeAlarmMissionId });
+          setActiveAlarmMissionId(undefined);
+        }}
+      />
+    );
+  }
+
   if (screen.name === 'create') {
     return <CreateMissionScreen onClose={() => setScreen({ name: 'today' })} />;
+  }
+
+  if (screen.name === 'edit') {
+    return (
+      <CreateMissionScreen
+        missionId={screen.missionId}
+        onClose={() => setScreen({ name: 'detail', missionId: screen.missionId })}
+        onSaved={() => setScreen({ name: 'detail', missionId: screen.missionId })}
+      />
+    );
+  }
+
+  if (screen.name === 'postpone') {
+    return (
+      <PostponeScreen
+        missionId={screen.missionId}
+        onCancel={() => setScreen({ name: 'detail', missionId: screen.missionId })}
+        onPostponed={() => setScreen({ name: 'today' })}
+        onDoNow={async () => {
+          await dismissMissionAlarm(screen.missionId);
+          setScreen({ name: 'detail', missionId: screen.missionId });
+        }}
+      />
+    );
   }
 
   if (screen.name === 'detail') {
@@ -47,6 +155,9 @@ function StrideApp() {
       <MissionDetailScreen
         missionId={screen.missionId}
         onBack={() => setScreen({ name: 'today' })}
+        onEdit={() => setScreen({ name: 'edit', missionId: screen.missionId })}
+        onPostpone={() => setScreen({ name: 'postpone', missionId: screen.missionId })}
+        onRemoved={() => setScreen({ name: 'today' })}
       />
     );
   }
@@ -76,6 +187,56 @@ function StrideApp() {
           </View>
 
           {error ? <Text style={[styles.error, { color: colors.danger }]}>{error}</Text> : null}
+
+          {notificationState === 'disabled' ? (
+            <View
+              style={[
+                styles.notificationCard,
+                { backgroundColor: colors.card, borderColor: colors.border },
+              ]}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.notificationTitle, { color: colors.text }]}>
+                  Enable mission reminders
+                </Text>
+                <Text style={[styles.notificationText, { color: colors.muted }]}>
+                  Warm and hot missions can remind you before their deadlines.
+                </Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                onPress={enableNotifications}
+                style={[styles.enableButton, { backgroundColor: colors.accent }]}
+              >
+                <Text style={styles.enableText}>Enable</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
+          {notificationState === 'enabled' && exactAlarmState === 'disabled' ? (
+            <View
+              style={[
+                styles.notificationCard,
+                { backgroundColor: colors.card, borderColor: colors.border },
+              ]}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.notificationTitle, { color: colors.text }]}>
+                  Allow critical alarms
+                </Text>
+                <Text style={[styles.notificationText, { color: colors.muted }]}>
+                  Android requires separate permission for exact full-screen alarms.
+                </Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                onPress={openExactAlarmPermissionSettings}
+                style={[styles.enableButton, { backgroundColor: colors.danger }]}
+              >
+                <Text style={styles.enableText}>Allow</Text>
+              </Pressable>
+            </View>
+          ) : null}
 
           <Text style={[styles.section, { color: colors.muted }]}>UP NEXT</Text>
           {missions.length === 0 ? (
@@ -114,9 +275,13 @@ function StrideApp() {
 export default function App() {
   const systemMode = useColorScheme();
   return (
-    <ThemeProvider initialMode={systemMode === 'dark' ? 'dark' : 'light'}>
-      <StrideApp />
-    </ThemeProvider>
+    <SafeAreaProvider>
+      <KeyboardProvider>
+        <ThemeProvider initialMode={systemMode === 'dark' ? 'dark' : 'light'}>
+          <StrideApp />
+        </ThemeProvider>
+      </KeyboardProvider>
+    </SafeAreaProvider>
   );
 }
 
@@ -140,6 +305,19 @@ const styles = StyleSheet.create({
   summaryText: { fontSize: 15, fontWeight: '600' },
   section: { marginTop: 26, marginBottom: 10, fontSize: 11, fontWeight: '700', letterSpacing: 1.4 },
   error: { marginTop: 12 },
+  notificationCard: {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 14,
+    marginTop: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  notificationTitle: { fontSize: 14, fontWeight: '700' },
+  notificationText: { fontSize: 12, lineHeight: 17, marginTop: 3 },
+  enableButton: { borderRadius: 11, paddingHorizontal: 14, paddingVertical: 10 },
+  enableText: { color: '#fff', fontSize: 12, fontWeight: '800' },
   empty: { padding: 22, borderWidth: 1, borderRadius: 18 },
   emptyTitle: { fontSize: 17, fontWeight: '700', marginBottom: 5 },
   fab: {

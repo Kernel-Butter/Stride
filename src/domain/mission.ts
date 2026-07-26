@@ -27,3 +27,8 @@ export interface NewMission {
   priority: Priority;
   objectives: Array<{ title: string; rewardText?: string }>;
 }
+
+export type UpdateMission = Omit<NewMission, 'objectives'> & {
+  id: string;
+  objectives: Array<{ title: string; rewardText?: string; done?: boolean; doneAt?: string }>;
+};

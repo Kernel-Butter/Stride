@@ -1,35 +1,129 @@
-import { useState } from 'react';
-import { Alert, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Alert,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { Priority } from '../domain/mission';
 import { useMissionStore } from '../store/missionStore';
 import { useResponsive } from '../theme/responsive';
 import { useTheme } from '../theme/ThemeProvider';
 
-export function CreateMissionScreen({ onClose }: { onClose: () => void }) {
+interface ObjectiveDraft {
+  title: string;
+  rewardText: string;
+  done?: boolean;
+  doneAt?: string;
+}
+
+const DEADLINES = [
+  { label: 'Tonight', hours: 8 },
+  { label: 'Tomorrow', hours: 24 },
+  { label: '3 days', hours: 72 },
+  { label: '1 week', hours: 168 },
+];
+
+export function CreateMissionScreen({
+  missionId,
+  onClose,
+  onSaved = onClose,
+}: {
+  missionId?: string;
+  onClose: () => void;
+  onSaved?: () => void;
+}) {
   const { colors } = useTheme();
   const { horizontalPadding, contentMaxWidth } = useResponsive();
+  const mission = useMissionStore((state) =>
+    missionId ? state.missions.find((item) => item.id === missionId) : undefined,
+  );
   const createMission = useMissionStore((state) => state.createMission);
-  const [title, setTitle] = useState('');
-  const [objective, setObjective] = useState('');
-  const [priority, setPriority] = useState<Priority>('medium');
+  const updateMission = useMissionStore((state) => state.updateMission);
+  const initialDeadlineHours = useMemo(() => {
+    if (!mission) return 24;
+    const remaining = Math.max(
+      1,
+      Math.round((new Date(mission.deadline).getTime() - Date.now()) / 3_600_000),
+    );
+    return DEADLINES.reduce(
+      (closest, option) =>
+        Math.abs(option.hours - remaining) < Math.abs(closest - remaining)
+          ? option.hours
+          : closest,
+      DEADLINES[0].hours,
+    );
+  }, [mission]);
+
+  const [title, setTitle] = useState(mission?.title ?? '');
+  const [priority, setPriority] = useState<Priority>(mission?.priority ?? 'medium');
+  const [deadlineHours, setDeadlineHours] = useState(initialDeadlineHours);
+  const [objectives, setObjectives] = useState<ObjectiveDraft[]>(
+    mission?.objectives.map((item) => ({
+      title: item.title,
+      rewardText: item.rewardText ?? '',
+      done: item.done,
+      doneAt: item.doneAt,
+    })) ?? [{ title: '', rewardText: '' }],
+  );
+  const objectiveInputRefs = useRef<Array<TextInput | null>>([]);
+  const [pendingFocusIndex, setPendingFocusIndex] = useState<number>();
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (pendingFocusIndex === undefined) return;
+    const input = objectiveInputRefs.current[pendingFocusIndex];
+    if (!input) return;
+    input.focus();
+    setPendingFocusIndex(undefined);
+  }, [objectives.length, pendingFocusIndex]);
+
+  function updateObjective(index: number, field: keyof ObjectiveDraft, value: string) {
+    setObjectives((current) =>
+      current.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, [field]: value } : item,
+      ),
+    );
+  }
 
   async function save() {
     if (!title.trim()) {
       Alert.alert('Mission needs a name');
       return;
     }
+    const validObjectives = objectives
+      .filter((item) => item.title.trim())
+      .map((item) => ({
+        title: item.title.trim(),
+        rewardText: item.rewardText.trim() || undefined,
+        done: item.done,
+        doneAt: item.doneAt,
+      }));
+    if (!validObjectives.length) {
+      Alert.alert('Add at least one objective', 'Make the first step small and concrete.');
+      return;
+    }
+
     setSaving(true);
     try {
-      await createMission({
+      const input = {
         title: title.trim(),
-        deadline: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        deadline: new Date(Date.now() + deadlineHours * 3_600_000).toISOString(),
         priority,
-        objectives: objective.trim() ? [{ title: objective.trim() }] : [],
-      });
-      onClose();
+        objectives: validObjectives,
+      };
+      if (missionId) {
+        await updateMission({ id: missionId, ...input });
+      } else {
+        await createMission(input);
+      }
+      onSaved();
     } catch {
-      Alert.alert('Could not create mission', 'Your data was not changed.');
+      Alert.alert('Could not save mission', 'Your data was not changed.');
     } finally {
       setSaving(false);
     }
@@ -37,27 +131,61 @@ export function CreateMissionScreen({ onClose }: { onClose: () => void }) {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
-      <ScrollView contentContainerStyle={[styles.content, { alignItems: 'center' }]} keyboardShouldPersistTaps="handled">
-        <View style={{ width: '100%', maxWidth: contentMaxWidth, paddingHorizontal: horizontalPadding }}>
-          <Pressable onPress={onClose}><Text style={[styles.back, { color: colors.muted }]}>‹ Cancel</Text></Pressable>
-          <Text style={[styles.title, { color: colors.text }]}>Create mission</Text>
+      <KeyboardAwareScrollView
+        bottomOffset={28}
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+      >
+        <View
+          style={{
+            width: '100%',
+            maxWidth: contentMaxWidth,
+            paddingHorizontal: horizontalPadding,
+          }}
+        >
+          <Pressable onPress={onClose}>
+            <Text style={[styles.back, { color: colors.muted }]}>‹ Cancel</Text>
+          </Pressable>
+          <Text style={[styles.title, { color: colors.text }]}>
+            {missionId ? 'Edit mission' : 'Create mission'}
+          </Text>
+
           <Text style={[styles.label, { color: colors.muted }]}>WHAT NEEDS TO GET DONE?</Text>
           <TextInput
             autoFocus
+            multiline
             value={title}
             onChangeText={setTitle}
             placeholder="Submit the project proposal"
             placeholderTextColor={colors.faint}
-            style={[styles.input, { color: colors.text, backgroundColor: colors.card, borderColor: colors.border }]}
+            style={[
+              styles.input,
+              { color: colors.text, backgroundColor: colors.card, borderColor: colors.border },
+            ]}
           />
-          <Text style={[styles.label, { color: colors.muted }]}>FIRST OBJECTIVE</Text>
-          <TextInput
-            value={objective}
-            onChangeText={setObjective}
-            placeholder="Draft the outline"
-            placeholderTextColor={colors.faint}
-            style={[styles.input, { color: colors.text, backgroundColor: colors.card, borderColor: colors.border }]}
-          />
+
+          <Text style={[styles.label, { color: colors.muted }]}>DEADLINE</Text>
+          <View style={styles.wrap}>
+            {DEADLINES.map((option) => (
+              <Pressable
+                key={option.hours}
+                onPress={() => setDeadlineHours(option.hours)}
+                style={[
+                  styles.choice,
+                  { borderColor: deadlineHours === option.hours ? colors.accent : colors.border },
+                  deadlineHours === option.hours && { backgroundColor: colors.accentSoft },
+                ]}
+              >
+                <Text
+                  style={{ color: deadlineHours === option.hours ? colors.accent : colors.muted }}
+                >
+                  {option.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+
           <Text style={[styles.label, { color: colors.muted }]}>PRIORITY</Text>
           <View style={styles.pills}>
             {(['low', 'medium', 'high'] as Priority[]).map((item) => (
@@ -70,29 +198,124 @@ export function CreateMissionScreen({ onClose }: { onClose: () => void }) {
                   priority === item && { backgroundColor: colors.accentSoft },
                 ]}
               >
-                <Text style={{ color: priority === item ? colors.accent : colors.muted }}>{item}</Text>
+                <Text style={{ color: priority === item ? colors.accent : colors.muted }}>
+                  {item}
+                </Text>
               </Pressable>
             ))}
           </View>
-          <Text style={[styles.note, { color: colors.muted }]}>Initial deadline: 24 hours from now.</Text>
-          <Pressable disabled={saving} onPress={save} style={[styles.save, { backgroundColor: colors.accent }]}>
-            <Text style={styles.saveText}>{saving ? 'Saving…' : 'Create mission'}</Text>
+
+          <Text style={[styles.label, { color: colors.muted }]}>OBJECTIVES + REWARDS</Text>
+          {objectives.map((objective, index) => (
+            <View key={index} style={[styles.objectiveCard, { borderColor: colors.border }]}>
+              <TextInput
+                ref={(input) => {
+                  objectiveInputRefs.current[index] = input;
+                }}
+                multiline
+                value={objective.title}
+                onChangeText={(value) => updateObjective(index, 'title', value)}
+                placeholder={`Objective ${index + 1}`}
+                placeholderTextColor={colors.faint}
+                style={[styles.objectiveInput, { color: colors.text }]}
+              />
+              <TextInput
+                multiline
+                value={objective.rewardText}
+                onChangeText={(value) => updateObjective(index, 'rewardText', value)}
+                placeholder="Unlocks: a real-world ability (optional)"
+                placeholderTextColor={colors.faint}
+                style={[
+                  styles.rewardInput,
+                  { color: colors.accent, borderTopColor: colors.border },
+                ]}
+              />
+              {objectives.length > 1 ? (
+                <Pressable
+                  onPress={() =>
+                    setObjectives((items) =>
+                      items.filter((_, itemIndex) => itemIndex !== index),
+                    )
+                  }
+                >
+                  <Text style={[styles.removeObjective, { color: colors.danger }]}>
+                    Remove objective
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ))}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Add another objective"
+            onPress={() => {
+              setPendingFocusIndex(objectives.length);
+              setObjectives((items) => [...items, { title: '', rewardText: '' }]);
+            }}
+            style={[styles.addObjective, { borderColor: colors.border }]}
+          >
+            <Text style={{ color: colors.accent, fontWeight: '700' }}>+ Add objective</Text>
+          </Pressable>
+
+          <Pressable
+            disabled={saving}
+            onPress={save}
+            style={[styles.save, { backgroundColor: colors.accent }]}
+          >
+            <Text style={styles.saveText}>
+              {saving ? 'Saving…' : missionId ? 'Save changes' : 'Create mission'}
+            </Text>
           </Pressable>
         </View>
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  content: { paddingVertical: 20, width: '100%' },
+  content: {
+    paddingVertical: 20,
+    paddingBottom: 50,
+    width: '100%',
+    alignItems: 'center',
+  },
   back: { fontWeight: '700', marginBottom: 24 },
   title: { fontSize: 30, fontWeight: '800' },
   label: { marginTop: 28, marginBottom: 8, fontSize: 11, fontWeight: '700', letterSpacing: 1.3 },
-  input: { borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, height: 52, fontSize: 15 },
+  input: {
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    minHeight: 52,
+    maxHeight: 130,
+    fontSize: 15,
+    textAlignVertical: 'top',
+  },
   pills: { flexDirection: 'row', gap: 8 },
   pill: { flex: 1, borderWidth: 1, borderRadius: 12, padding: 12, alignItems: 'center' },
-  note: { marginTop: 16, fontSize: 12 },
+  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  choice: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 15, paddingVertical: 11 },
+  objectiveCard: { borderWidth: 1, borderRadius: 14, marginBottom: 10, overflow: 'hidden' },
+  objectiveInput: {
+    minHeight: 48,
+    maxHeight: 130,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    fontSize: 14,
+    textAlignVertical: 'top',
+  },
+  rewardInput: {
+    minHeight: 44,
+    maxHeight: 110,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    fontSize: 12,
+    textAlignVertical: 'top',
+  },
+  removeObjective: { paddingHorizontal: 14, paddingBottom: 12, fontSize: 12, fontWeight: '700' },
+  addObjective: { borderWidth: 1, borderRadius: 13, padding: 13, alignItems: 'center' },
   save: { height: 52, borderRadius: 15, alignItems: 'center', justifyContent: 'center', marginTop: 32 },
   saveText: { color: '#fff', fontWeight: '800', fontSize: 15 },
 });
