@@ -1,12 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import DateTimePicker, {
+  DateTimePickerEvent,
+} from '@react-native-community/datetimepicker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { Priority } from '../domain/mission';
@@ -28,6 +32,17 @@ const DEADLINES = [
   { label: '1 week', hours: 168 },
 ];
 
+const DEADLINE_MATCH_TOLERANCE_MS = 60_000;
+
+function formatDeadline(date: Date): string {
+  return date.toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 export function CreateMissionScreen({
   missionId,
   onClose,
@@ -44,24 +59,17 @@ export function CreateMissionScreen({
   );
   const createMission = useMissionStore((state) => state.createMission);
   const updateMission = useMissionStore((state) => state.updateMission);
-  const initialDeadlineHours = useMemo(() => {
-    if (!mission) return 24;
-    const remaining = Math.max(
-      1,
-      Math.round((new Date(mission.deadline).getTime() - Date.now()) / 3_600_000),
-    );
-    return DEADLINES.reduce(
-      (closest, option) =>
-        Math.abs(option.hours - remaining) < Math.abs(closest - remaining)
-          ? option.hours
-          : closest,
-      DEADLINES[0].hours,
-    );
-  }, [mission]);
+  const openedAtRef = useRef(Date.now());
 
   const [title, setTitle] = useState(mission?.title ?? '');
   const [priority, setPriority] = useState<Priority>(mission?.priority ?? 'medium');
-  const [deadlineHours, setDeadlineHours] = useState(initialDeadlineHours);
+  const [deadline, setDeadline] = useState<Date>(
+    mission ? new Date(mission.deadline) : new Date(openedAtRef.current + 24 * 3_600_000),
+  );
+  const [pickerStage, setPickerStage] = useState<'closed' | 'date' | 'time' | 'datetime'>(
+    'closed',
+  );
+  const [pendingDate, setPendingDate] = useState<Date>();
   const [objectives, setObjectives] = useState<ObjectiveDraft[]>(
     mission?.objectives.map((item) => ({
       title: item.title,
@@ -90,6 +98,39 @@ export function CreateMissionScreen({
     );
   }
 
+  function openCustomPicker() {
+    setPickerStage(Platform.OS === 'ios' ? 'datetime' : 'date');
+  }
+
+  function handlePickerChange(event: DateTimePickerEvent, selected?: Date) {
+    if (Platform.OS === 'ios') {
+      if (selected) setDeadline(selected);
+      if (event.type === 'set' || event.type === 'dismissed') setPickerStage('closed');
+      return;
+    }
+
+    // Android has no native "datetime" mode: pick the date, then the time.
+    if (event.type !== 'set' || !selected) {
+      setPendingDate(undefined);
+      setPickerStage('closed');
+      return;
+    }
+    if (pickerStage === 'date') {
+      const combined = new Date(selected);
+      combined.setHours(deadline.getHours(), deadline.getMinutes(), 0, 0);
+      setPendingDate(combined);
+      setPickerStage('time');
+      return;
+    }
+    if (pickerStage === 'time') {
+      const combined = new Date(pendingDate ?? deadline);
+      combined.setHours(selected.getHours(), selected.getMinutes(), 0, 0);
+      setDeadline(combined);
+      setPendingDate(undefined);
+      setPickerStage('closed');
+    }
+  }
+
   async function save() {
     if (!title.trim()) {
       Alert.alert('Mission needs a name');
@@ -112,7 +153,7 @@ export function CreateMissionScreen({
     try {
       const input = {
         title: title.trim(),
-        deadline: new Date(Date.now() + deadlineHours * 3_600_000).toISOString(),
+        deadline: deadline.toISOString(),
         priority,
         objectives: validObjectives,
       };
@@ -167,24 +208,56 @@ export function CreateMissionScreen({
 
           <Text style={[styles.label, { color: colors.muted }]}>DEADLINE</Text>
           <View style={styles.wrap}>
-            {DEADLINES.map((option) => (
-              <Pressable
-                key={option.hours}
-                onPress={() => setDeadlineHours(option.hours)}
-                style={[
-                  styles.choice,
-                  { borderColor: deadlineHours === option.hours ? colors.accent : colors.border },
-                  deadlineHours === option.hours && { backgroundColor: colors.accentSoft },
-                ]}
-              >
-                <Text
-                  style={{ color: deadlineHours === option.hours ? colors.accent : colors.muted }}
+            {DEADLINES.map((option) => {
+              const target = openedAtRef.current + option.hours * 3_600_000;
+              const selected = Math.abs(deadline.getTime() - target) < DEADLINE_MATCH_TOLERANCE_MS;
+              return (
+                <Pressable
+                  key={option.hours}
+                  onPress={() => setDeadline(new Date(openedAtRef.current + option.hours * 3_600_000))}
+                  style={[
+                    styles.choice,
+                    { borderColor: selected ? colors.accent : colors.border },
+                    selected && { backgroundColor: colors.accentSoft },
+                  ]}
                 >
-                  {option.label}
-                </Text>
-              </Pressable>
-            ))}
+                  <Text style={{ color: selected ? colors.accent : colors.muted }}>
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+            {(() => {
+              const isCustom = !DEADLINES.some(
+                (option) =>
+                  Math.abs(deadline.getTime() - (openedAtRef.current + option.hours * 3_600_000)) <
+                  DEADLINE_MATCH_TOLERANCE_MS,
+              );
+              return (
+                <Pressable
+                  onPress={openCustomPicker}
+                  style={[
+                    styles.choice,
+                    { borderColor: isCustom ? colors.accent : colors.border },
+                    isCustom && { backgroundColor: colors.accentSoft },
+                  ]}
+                >
+                  <Text style={{ color: isCustom ? colors.accent : colors.muted }}>
+                    {isCustom ? formatDeadline(deadline) : 'Custom…'}
+                  </Text>
+                </Pressable>
+              );
+            })()}
           </View>
+
+          {pickerStage !== 'closed' ? (
+            <DateTimePicker
+              value={pickerStage === 'time' ? pendingDate ?? deadline : deadline}
+              mode={pickerStage === 'datetime' ? 'datetime' : pickerStage}
+              minimumDate={new Date()}
+              onChange={handlePickerChange}
+            />
+          ) : null}
 
           <Text style={[styles.label, { color: colors.muted }]}>PRIORITY</Text>
           <View style={styles.pills}>
